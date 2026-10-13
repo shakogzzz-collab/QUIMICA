@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><title>Química Aplicada · Estudio</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root{--bg:#0f172a;--p:#162033;--p2:#1e2b42;--b:#2b3a55;--t:#e8eefc;--m:#93a3c0;--blue:#38bdf8;--grn:#34d399;--vio:#a78bfa;--red:#fb7185}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--t);font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+header{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--b);position:sticky;top:0;background:var(--bg);z-index:5}
+header h1{font-size:18px;margin:0;white-space:nowrap;background:linear-gradient(90deg,var(--blue),var(--grn));-webkit-background-clip:text;background-clip:text;color:transparent}
+nav{display:flex;gap:6px;margin-left:auto;overflow-x:auto}nav button{white-space:nowrap}
+main{max-width:1000px;margin:0 auto;padding:18px}
+button,select,input,textarea{font:inherit;color:var(--t);background:var(--p2);border:1px solid var(--b);border-radius:10px;padding:8px 12px}
+button{cursor:pointer;transition:.15s}button:hover:not(:disabled){border-color:var(--blue)}button:disabled{opacity:.5}
+button.on{background:#0c3550;border-color:var(--blue);color:var(--blue)}
+button.pri{background:#0b3a2d;border-color:var(--grn);color:var(--grn)}
+textarea,input,select{width:100%}textarea{min-height:110px;resize:vertical}
+.card{background:var(--p);border:1px solid var(--b);border-radius:14px;padding:16px;margin:12px 0}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.row>*{flex:0 0 auto}.row>.g{flex:1 1 200px}
+.chip{display:inline-block;background:#251f45;color:var(--vio);border:1px solid #3d3470;border-radius:99px;padding:2px 10px;margin:3px 4px 3px 0;font-size:13px;text-decoration:none}
+.f{font:600 17px ui-monospace,Menlo,Consolas,monospace;color:var(--grn);background:#0b2a26;border:1px solid #17534a;border-radius:10px;padding:10px 12px;margin:8px 0;overflow-x:auto;white-space:pre-wrap}
+.k{color:var(--blue);font-family:ui-monospace,monospace}
+h2,h3{margin:.3em 0}h2{color:var(--blue)}h3{color:var(--vio);font-size:16px}
+.m{color:var(--m);font-size:13px}.err{color:var(--red)}.hide{display:none}
+table{border-collapse:collapse;width:100%;font-size:14px}td,th{border-bottom:1px solid var(--b);padding:5px 8px;text-align:left}
+.tw{overflow-x:auto}
+.opt{display:block;width:100%;text-align:left;margin:6px 0}.opt.ok{border-color:var(--grn);background:#0b2e25}.opt.ko{border-color:var(--red);background:#35151f}
+.fc{min-height:170px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:18px;cursor:pointer;border-color:var(--vio);white-space:pre-wrap}
+.msg{padding:10px 14px;border-radius:12px;margin:8px 0;max-width:92%;white-space:pre-wrap}.u{background:#0c3550;margin-left:auto}.a{background:var(--p2);border:1px solid var(--b)}
+#chat{min-height:280px;max-height:55vh;overflow-y:auto}
+iframe{width:100%;aspect-ratio:16/9;border:0;border-radius:10px}
+@media(max-width:640px){header{flex-wrap:wrap}nav{margin-left:0;width:100%}main{padding:12px}}
+</style></head><body>
+<header><h1>⚗️ Química Aplicada</h1><nav id="nav"></nav></header>
+<main id="app"></main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let S={docs:[],topics:[],videos:[],cfg:{provider:'anthropic',key:'',model:'claude-sonnet-5-5',base:'https://api.openai.com/v1'}},tab='notes',busy='';
+try{const x=JSON.parse(localStorage.getItem('qa_v2')||'{}');S=Object.assign(S,x);S.cfg=Object.assign({provider:'anthropic',key:'',model:'claude-sonnet-5-5',base:'https://api.openai.com/v1'},x.cfg||{})}catch(e){}
+const save=()=>{try{localStorage.setItem('qa_v2',JSON.stringify(S))}catch(e){alert('No se pudo guardar en localStorage (¿almacenamiento lleno?).')}};
+const hasAI=()=>!!S.cfg.key;
+const TABS=[['notes','📚 Apuntes'],['practice','🧪 Práctica'],['formulas','∑ Formulario'],['videos','▶ Vídeos'],['chat','🤖 Tutor IA'],['cfg','⚙️ IA']];
+function render(){$('#nav').innerHTML=TABS.map(([k,l])=>`<button class="${k==tab?'on':''}" onclick="tab='${k}';render()">${l}</button>`).join('');({notes:vNotes,practice:vPractice,formulas:vFormulas,videos:vVideos,chat:vChat,cfg:vCfg})[tab]()}
+const ctx=t=>t?t.text:S.topics.map(x=>'## '+x.title+'\n'+x.text).join('\n\n').slice(0,16000);
+
+/* ---------- Cliente de IA (tu propia API key) ---------- */
+async function ai(system,messages){
+  const c=S.cfg;if(!c.key)throw new Error('Configura tu API key en la pestaña ⚙️ IA.');
+  if(c.provider=='anthropic'){
+    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':c.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:c.model,max_tokens:4000,system,messages})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error?.message||r.status);return d.content.map(x=>x.text||'').join('');
+  }
+  const r=await fetch(c.base.replace(/\/$/,'')+'/chat/completions',{method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+c.key},body:JSON.stringify({model:c.model,messages:[{role:'system',content:system},...messages]})});
+  const d=await r.json();if(!r.ok)throw new Error(d.error?.message||r.status);return d.choices[0].message.content;
+}
+async function aiJSON(prompt){
+  const t=await ai('Responde ÚNICAMENTE con JSON válido, sin texto adicional ni bloques de código.',[{role:'user',content:prompt}]);
+  const a=t.indexOf('{'),b=t.lastIndexOf('}');return JSON.parse(t.slice(a,b+1));
+}
+
+/* ---------- Extracción local (heurística) ---------- */
+function analyze(text,name,id){
+  const lines=text.split(/\n+/).map(l=>l.trim()).filter(Boolean);
+  const hd=/^(tema|unidad|cap[ií]tulo|bloque)\s*\d*|^\d+(\.\d+)*[.)]?\s+[A-ZÁÉÍÓÚÑ]/i;
+  const tp=[];let cur=null;
+  for(const l of lines){
+    if(l.length<80&&hd.test(l)&&!/=/.test(l)){cur={title:l,lines:[]};tp.push(cur)}
+    else{if(!cur){cur={title:name,lines:[]};tp.push(cur)}cur.lines.push(l)}
+  }
+  return tp.filter(t=>t.lines.length).map(t=>{
+    const body=t.lines.join('\n');
+    const formulas=t.lines.filter(l=>l.includes('=')&&l.length<110&&/[A-Za-zΔα-ω]/.test(l)&&!/^\W/.test(l)).slice(0,25).map(l=>({name:l.split('=')[0].trim().slice(0,40),expr:l,vars:[]}));
+    const constants=[...body.matchAll(/([A-Za-zΔα-ωΑ-Ω_]{1,6})\s*=\s*(-?\d[\d.,]*(?:\s*[x×·]\s*10\^?[-−]?\d+)?)\s*([A-Za-zΩ°/·%^\-−0-9]{1,14})?/g)].slice(0,12).map(m=>({name:m[1],value:m[2],unit:m[3]||''}));
+    const seen={},concepts=[];
+    for(const l of t.lines){
+      const m=l.match(/^([A-ZÁÉÍÓÚÑa-záéíóúñ ]{3,40}):\s*(.{10,})/)||l.match(/^(.{3,40}?)\s+(?:se define como|es la|es el)\s+(.{10,})/);
+      if(m&&!seen[m[1]]){seen[m[1]]=1;concepts.push({term:m[1].trim(),def:m[2].slice(0,160)})}
+    }
+    return{id,title:t.title,summary:body.split(/(?<=[.!?])\s/).slice(0,2).join(' ').slice(0,260),text:body.slice(0,14000),concepts:concepts.slice(0,15),formulas,constants};
+  });
+}
+function addDoc(name,text){
+  const id=Date.now()+''+Math.random().toString(36).slice(2,5);
+  S.docs.push({id,name,len:text.length});S.topics.push(...analyze(text,name,id));save();render();
+}
+async function onPDF(f){
+  busy='Leyendo PDF…';render();
+  try{
+    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const pdf=await pdfjsLib.getDocument({data:await f.arrayBuffer()}).promise;let out='';
+    for(let i=1;i<=pdf.numPages;i++){
+      const c=await(await pdf.getPage(i)).getTextContent();let y=null,ln='';
+      for(const it of c.items){const yy=it.transform[5];if(y!==null&&Math.abs(yy-y)>3){out+=ln+'\n';ln=''}ln+=it.str+' ';y=yy}
+      out+=ln+'\n';
+    }
+    busy='';addDoc(f.name,out);
+  }catch(e){busy='';alert('No se pudo leer el PDF (necesita conexión para cargar pdf.js). Pega el texto manualmente.');render()}
+}
+async function aiAnalyze(id){
+  if(!hasAI())return alert('Configura tu API key en la pestaña ⚙️ IA.');
+  const src=S.topics.filter(t=>t.id==id).map(t=>t.title+'\n'+t.text).join('\n\n').slice(0,16000);
+  busy='La IA está analizando los apuntes…';render();
+  try{
+    const r=await aiJSON('Analiza estos apuntes de Química Aplicada. Devuelve JSON: {"topics":[{"title":"","summary":"","concepts":[{"term":"","def":""}],"formulas":[{"name":"","expr":"","vars":[{"sym":"","desc":"","unit":"unidad SI"}]}],"constants":[{"name":"","value":"","unit":""}]}]}. Usa únicamente lo que aparece en los apuntes.\n\nAPUNTES:\n'+src);
+    const nt=(r.topics||[]).map(t=>({id,title:t.title,summary:t.summary,text:src,concepts:t.concepts||[],formulas:t.formulas||[],constants:t.constants||[]}));
+    if(nt.length){S.topics=S.topics.filter(t=>t.id!=id).concat(nt);save()}
+  }catch(e){alert('Error IA: '+e.message)}
+  busy='';render();
+}
+function delDoc(id){if(!confirm('¿Borrar estos apuntes y sus temas?'))return;S.docs=S.docs.filter(d=>d.id!=id);S.topics=S.topics.filter(t=>t.id!=id);save();render()}
+function exportData(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({...S,cfg:{}})],{type:'application/json'}));a.download='quimica-backup.json';a.click()}
+function importData(f){f.text().then(t=>{try{const x=JSON.parse(t);S.docs=x.docs||[];S.topics=x.topics||[];S.videos=x.videos||[];save();render()}catch(e){alert('Archivo no válido')}})}
+
+/* ---------- Apuntes ---------- */
+function vNotes(){
+  $('#app').innerHTML=`<div class="card"><h2>Base de conocimiento</h2>
+  <div class="row"><input class="g" type="file" id="pdf" accept=".pdf,.txt,.md"><span class="m">PDF, TXT o MD</span></div>
+  <p class="m">…o pega tus apuntes:</p><textarea id="pt" placeholder="Pega aquí tus apuntes"></textarea>
+  <div class="row" style="margin-top:8px"><input class="g" id="pn" placeholder="Nombre (ej. Tema 3 – Electroquímica)"><button class="pri" onclick="const t=$('#pt').value.trim();if(t)addDoc($('#pn').value||'Apuntes',t)">Añadir apuntes</button></div>
+  <div class="row" style="margin-top:8px"><button onclick="exportData()">⬇ Copia de seguridad</button><label class="m">⬆ Restaurar <input type="file" accept=".json" onchange="importData(this.files[0])" style="display:inline;width:auto"></label></div>
+  ${busy?`<p class="k">${busy}</p>`:''}</div>
+  ${S.docs.map(d=>`<div class="card row"><b class="g">📄 ${esc(d.name)}</b><button onclick="aiAnalyze('${d.id}')" ${hasAI()?'':'disabled'}>✨ Mejorar con IA</button><button onclick="delDoc('${d.id}')">🗑</button></div>`).join('')}
+  ${S.topics.map(t=>`<div class="card"><h2>${esc(t.title)}</h2><p>${esc(t.summary)}</p>
+   ${t.concepts&&t.concepts.length?`<h3>Conceptos clave</h3>${t.concepts.map(c=>`<span class="chip" title="${esc(c.def)}">${esc(c.term)}</span>`).join('')}<ul class="m">${t.concepts.slice(0,5).map(c=>`<li><b>${esc(c.term)}</b>: ${esc(c.def)}</li>`).join('')}</ul>`:''}
+   ${t.formulas&&t.formulas.length?`<h3>Ecuaciones</h3>${t.formulas.slice(0,6).map(f=>`<div class="f">${esc(f.expr)}</div>`).join('')}`:''}
+   ${t.constants&&t.constants.length?`<h3>Constantes</h3>${t.constants.map(c=>`<span class="chip" style="color:var(--blue);border-color:#1f5775;background:#0b2a40">${esc(c.name)} = ${esc(c.value)} ${esc(c.unit)}</span>`).join('')}`:''}</div>`).join('')||'<p class="m">Aún no hay apuntes. Sube un PDF o pega texto para empezar.</p>'}`;
+  $('#pdf').onchange=async e=>{const f=e.target.files[0];if(!f)return;f.name.toLowerCase().endsWith('.pdf')?onPDF(f):addDoc(f.name,await f.text())};
+}
+
+/* ---------- Práctica ---------- */
+let pr={mode:'test',topic:'',items:[],i:0,flip:false,msg:''};
+const shuf=a=>a.map(x=>[Math.random(),x]).sort((a,b)=>a[0]-b[0]).map(x=>x[1]);
+const curTopics=()=>pr.topic===''?S.topics:[S.topics[pr.topic]].filter(Boolean);
+function topicSel(){return `<select onchange="pr.topic=this.value;pr.items=[]"><option value="">Todos los temas</option>${S.topics.map((t,i)=>`<option value="${i}" ${String(pr.topic)===String(i)?'selected':''}>${esc(t.title)}</option>`).join('')}</select>`}
+function localTest(){
+  const ts=curTopics(),cs=ts.flatMap(t=>t.concepts||[]),fs=ts.flatMap(t=>t.formulas||[]);
+  const pool=[];
+  cs.forEach(c=>{const o=shuf(cs.filter(x=>x.term!=c.term)).slice(0,3).map(x=>x.term);if(o.length>=2){const opts=shuf([c.term,...o]);pool.push({q:'¿A qué concepto corresponde: «'+c.def+'»?',opts,ok:opts.indexOf(c.term),why:c.term+': '+c.def})}});
+  fs.forEach(f=>{const o=shuf(fs.filter(x=>x.expr!=f.expr)).slice(0,3).map(x=>x.expr);if(o.length>=2){const opts=shuf([f.expr,...o]);pool.push({q:'¿Qué expresión corresponde a «'+f.name+'»?',opts,ok:opts.indexOf(f.expr),why:'Según tus apuntes: '+f.expr})}});
+  return shuf(pool).slice(0,8);
+}
+async function gen(kind){
+  const src=ctx(pr.topic===''?null:S.topics[pr.topic]);
+  if(!src)return alert('Primero sube apuntes.');
+  pr.items=[];pr.i=0;
+  if(!hasAI()){
+    if(kind=='test'){pr.items=localTest();pr.msg=pr.items.length?'Modo sin IA: preguntas generadas desde conceptos y fórmulas extraídos.':'Se necesitan al menos 3 conceptos o fórmulas extraídos (o configura la IA).';}
+    else pr.msg='Los problemas numéricos requieren configurar la IA en ⚙️.';
+    return vPractice();
+  }
+  pr.msg='Generando con IA…';vPractice();
+  const schema=kind=='test'?'{"items":[{"q":"","opts":["","","",""],"ok":0,"why":""}]}':'{"items":[{"enunciado":"","datos":"","pasos":["paso con cálculo"],"resultado":""}]}';
+  const what=kind=='test'?'5 preguntas tipo test (4 opciones; "ok" = índice 0-3 de la correcta)':'3 problemas numéricos con solución paso a paso (unidades SI)';
+  try{const r=await aiJSON(`Genera ${what} basadas ÚNICAMENTE en estos apuntes de Química Aplicada. Devuelve JSON: ${schema}\n\nAPUNTES:\n${src}`);pr.items=r.items||[];pr.msg=''}
+  catch(e){pr.msg='<span class="err">Error: '+esc(e.message)+'</span>'}
+  vPractice();
+}
+function flash(){
+  const c=[];
+  curTopics().forEach(t=>{
+    (t.concepts||[]).forEach(x=>c.push({q:'¿Qué es «'+x.term+'»?',a:x.def}));
+    (t.formulas||[]).forEach(f=>{
+      const v=f.vars&&f.vars.length?'\n\n'+f.vars.map(v=>v.sym+' = '+v.desc+' ['+v.unit+']').join('\n'):'';
+      c.push({q:'Escribe la fórmula de: '+f.name,a:f.expr+v});
+      (f.vars||[]).slice(0,3).forEach(v=>c.push({q:'Despeja «'+v.sym+'» ('+v.desc+') en:\n'+f.expr,a:'Comprueba tu despeje partiendo de:\n'+f.expr+'\nUnidad SI de '+v.sym+': '+v.unit}));
+    });
+  });
+  pr.items=shuf(c);pr.i=0;pr.flip=false;pr.msg=c.length?'':'No hay conceptos ni fórmulas todavía.';vPractice();
+}
+function vPractice(){
+  const it=pr.items[pr.i];let body='';
+  const nav=`<div class="row" style="margin-top:8px"><button onclick="nx(-1)">←</button><button onclick="nx(1)">→</button></div>`;
+  if(pr.mode=='test'&&it)body=`<div class="card"><p class="m">Pregunta ${pr.i+1}/${pr.items.length}</p><b>${esc(it.q)}</b>${it.opts.map((o,j)=>`<button class="opt" onclick="ans(this,${j})">${esc(o)}</button>`).join('')}<p id="fb" class="m"></p>${nav}</div>`;
+  if(pr.mode=='prob'&&it)body=`<div class="card"><p class="m">Problema ${pr.i+1}/${pr.items.length}</p><b>${esc(it.enunciado)}</b><p class="k">${esc(it.datos||'')}</p><button onclick="this.nextElementSibling.classList.toggle('hide')">Ver solución paso a paso</button><div class="hide"><ol>${(it.pasos||[]).map(p=>`<li>${esc(p)}</li>`).join('')}</ol><div class="f">${esc(it.resultado)}</div></div>${nav}</div>`;
+  if(pr.mode=='flash'&&it)body=`<div class="card fc" onclick="pr.flip=!pr.flip;vPractice()">${esc(pr.flip?it.a:it.q)}</div><div class="row"><button onclick="nx(-1)">←</button><span class="m g" style="text-align:center">${pr.i+1}/${pr.items.length} · toca para girar</span><button onclick="nx(1)">→</button></div>`;
+  $('#app').innerHTML=`<div class="card"><h2>Práctica</h2><div class="row">${[['test','Test'],['prob','Problemas'],['flash','Flashcards']].map(([k,l])=>`<button class="${pr.mode==k?'on':''}" onclick="pr.mode='${k}';pr.items=[];pr.msg='';vPractice()">${l}</button>`).join('')}<div class="g">${topicSel()}</div><button class="pri" onclick="${pr.mode=='flash'?'flash()':`gen('${pr.mode}')`}">Generar</button></div><p class="k">${pr.msg}</p></div>${body}`;
+}
+function ans(b,j){const it=pr.items[pr.i];[...b.parentNode.querySelectorAll('.opt')].forEach((x,k)=>{x.disabled=true;if(k==it.ok)x.classList.add('ok')});if(j!=it.ok)b.classList.add('ko');$('#fb').textContent=(j==it.ok?'✅ Correcto. ':'❌ Incorrecto. ')+(it.why||'')}
+function nx(d){if(!pr.items.length)return;pr.i=(pr.i+d+pr.items.length)%pr.items.length;pr.flip=false;vPractice()}
+function vPractice0(){}
+
+/* ---------- Formulario ---------- */
+function vFormulas(){
+  const cs=S.topics.flatMap(t=>t.constants||[]);
+  $('#app').innerHTML=`<div class="card"><h2>Formulario dinámico</h2><input id="q" placeholder="Buscar fórmula, variable o unidad…" oninput="fl()"></div><div id="fl"></div>
+  ${cs.length?`<div class="card"><h3>Constantes</h3><div class="tw"><table>${cs.map(c=>`<tr><td class="k">${esc(c.name)}</td><td>${esc(c.value)}</td><td>${esc(c.unit)}</td></tr>`).join('')}</table></div></div>`:''}`;fl();
+}
+function fl(){
+  const q=(($('#q')||{}).value||'').toLowerCase();
+  const all=S.topics.flatMap(t=>(t.formulas||[]).map(f=>({...f,tema:t.title}))).filter(f=>JSON.stringify(f).toLowerCase().includes(q));
+  $('#fl').innerHTML=all.map(f=>`<div class="card"><span class="m">${esc(f.tema)}</span><h3>${esc(f.name)}</h3><div class="f">${esc(f.expr)}</div>${f.vars&&f.vars.length?`<div class="tw"><table><tr><th>Var.</th><th>Significado</th><th>Unidad SI</th></tr>${f.vars.map(v=>`<tr><td class="k">${esc(v.sym)}</td><td>${esc(v.desc)}</td><td>${esc(v.unit)}</td></tr>`).join('')}</table></div>`:'<p class="m">Usa «✨ Mejorar con IA» en Apuntes para desglosar variables y unidades SI.</p>'}</div>`).join('')||'<p class="m">Sin fórmulas todavía.</p>';
+}
+
+/* ---------- Vídeos ---------- */
+const yid=u=>{const m=u.match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([\w-]{11})/);return m&&m[1]};
+function addVid(){const u=$('#vu').value.trim(),id=yid(u);if(!id)return alert('Enlace de YouTube no válido');S.videos.push({id,topic:$('#vt').value});save();vVideos()}
+function vVideos(){
+  const yt=q=>'https://www.youtube.com/results?search_query='+encodeURIComponent(q);
+  const ts=S.topics.length?S.topics.map(t=>t.title):['Química Aplicada'];
+  $('#app').innerHTML=`<div class="card"><h2>Vídeos explicativos</h2><p class="m">Búsquedas recomendadas por tema (se abren en YouTube):</p>
+  ${ts.map(t=>`<div class="row" style="margin:6px 0"><b class="g">${esc(t)}</b><a class="chip" target="_blank" rel="noopener" href="${yt('Química aplicada '+t)}">Vídeos</a><a class="chip" target="_blank" rel="noopener" href="${yt('Química aplicada '+t+' lista de reproducción curso')}">Listas</a><a class="chip" target="_blank" rel="noopener" href="${yt('Química aplicada '+t+' problemas resueltos')}">Problemas</a></div>`).join('')}</div>
+  <div class="card"><h3>Añadir mi enlace</h3><div class="row"><input class="g" id="vu" placeholder="https://youtube.com/watch?v=…"><select id="vt" class="g">${ts.map(t=>`<option>${esc(t)}</option>`).join('')}</select><button class="pri" onclick="addVid()">Añadir</button></div></div>
+  ${S.videos.map((v,i)=>`<div class="card"><div class="row"><span class="chip">${esc(v.topic)}</span><button onclick="S.videos.splice(${i},1);save();vVideos()">🗑</button><a class="chip" target="_blank" rel="noopener" href="https://youtu.be/${v.id}">Abrir en YouTube</a></div><iframe src="https://www.youtube-nocookie.com/embed/${v.id}" allowfullscreen loading="lazy"></iframe></div>`).join('')}`;
+}
+
+/* ---------- Tutor IA ---------- */
+let hist=[];
+function vChat(){
+  $('#app').innerHTML=`<div class="card"><h2>Tutor IA de Química Aplicada</h2><p class="m">Responde basándose en tus apuntes.${hasAI()?'':' <span class="err">Configura tu API key en ⚙️ IA.</span>'}</p>
+  <div id="chat">${hist.map(m=>`<div class="msg ${m.role=='user'?'u':'a'}">${esc(m.content)}</div>`).join('')}</div>
+  <div class="row" style="margin-top:8px"><input class="g" id="ci" placeholder="Pregunta una duda, pide un despeje, una reacción…" onkeydown="if(event.key=='Enter')send()"><button class="pri" onclick="send()">Enviar</button><button onclick="hist=[];vChat()">Limpiar</button></div></div>`;
+  const c=$('#chat');c.scrollTop=c.scrollHeight;
+}
+async function send(){
+  const i=$('#ci'),q=i.value.trim();if(!q)return;
+  if(!hasAI()){alert('Configura tu API key en la pestaña ⚙️ IA.');return}
+  hist.push({role:'user',content:q});hist.push({role:'assistant',content:'…'});vChat();
+  const sys=`Eres un tutor experto en ciencias exactas y Química Aplicada. Responde en español, paso a paso, con unidades del S.I. Basa tus respuestas ESTRICTAMENTE en los apuntes del estudiante; si algo no aparece en ellos, dilo claramente antes de aportar contexto general.\n\nAPUNTES:\n${ctx(null)||'(sin apuntes subidos)'}`;
+  const msgs=hist.slice(0,-1).slice(-10).map(m=>({role:m.role,content:m.content}));
+  while(msgs.length&&msgs[0].role!='user')msgs.shift();
+  try{hist[hist.length-1].content=await ai(sys,msgs)}catch(e){hist[hist.length-1].content='Error: '+e.message}
+  vChat();
+}
+
+/* ---------- Configuración IA ---------- */
+function vCfg(){
+  const c=S.cfg;
+  $('#app').innerHTML=`<div class="card"><h2>Configuración de la IA</h2>
+  <p class="m">Tu clave se guarda solo en el localStorage de este navegador y se envía únicamente al proveedor que elijas. Sin clave, la app funciona (apuntes, formulario, flashcards y tests básicos) pero sin tutor ni problemas.</p>
+  <p>Proveedor</p><select onchange="S.cfg.provider=this.value;S.cfg.model=this.value=='anthropic'?'claude-sonnet-5-5':'gpt-4o';save();vCfg()"><option value="anthropic" ${c.provider=='anthropic'?'selected':''}>Anthropic (Claude)</option><option value="openai" ${c.provider=='openai'?'selected':''}>Compatible con OpenAI (OpenAI, Gemini, OpenRouter, Ollama…)</option></select>
+  <p>API key</p><input type="password" value="${esc(c.key)}" onchange="S.cfg.key=this.value.trim();save()" placeholder="sk-…">
+  <p>Modelo</p><input value="${esc(c.model)}" onchange="S.cfg.model=this.value.trim();save()">
+  ${c.provider=='openai'?`<p>URL base</p><input value="${esc(c.base)}" onchange="S.cfg.base=this.value.trim();save()"><p class="m">Gemini: https://generativelanguage.googleapis.com/v1beta/openai · Ollama local: http://localhost:11434/v1</p>`:''}
+  <p class="m">Nota: algunos proveedores bloquean llamadas directas desde el navegador (CORS) si abres el archivo con file://.</p></div>`;
+}
+render();
+</script></body></html>
